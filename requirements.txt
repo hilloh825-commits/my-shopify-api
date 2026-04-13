@@ -1,4 +1,0 @@
-flask
-stripe
-requests
-gunicorn
