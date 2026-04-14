@@ -741,7 +741,17 @@ async def ultra_checkout(card, site_url, proxy=None):
         ]
         
         if proxy:
-            args.append(f'--proxy-server={proxy}')
+    parts = proxy.split(':')
+    if len(parts) == 4:
+        ip, port, username, password = parts
+        proxy_url = f'http://{username}:{password}@{ip}:{port}'
+    elif len(parts) == 2:
+        proxy_url = f'http://{parts[0]}:{parts[1]}'
+    elif '@' in proxy:
+        proxy_url = proxy if proxy.startswith('http') else f'http://{proxy}'
+    else:
+        proxy_url = proxy
+    args.append(f'--proxy-server={proxy_url}')
         
         browser = await p.chromium.launch(
             headless=CONFIG["headless"],
