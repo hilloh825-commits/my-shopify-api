@@ -85,7 +85,7 @@ async def find_and_add_product(page):
     
     for selector in product_selectors:
         try:
-            elements = await page.locator(selector).all()
+            elements = await page.query_selector_all(selector)  # ✅ FIXED
             if len(elements) > 0:
                 element = random.choice(elements[:5]) if len(elements) > 1 else elements[0]
                 await element.click()
@@ -100,7 +100,7 @@ async def find_and_add_product(page):
                 
                 for add_sel in add_selectors:
                     try:
-                        add_btn = await page.locator(add_sel).first
+                        add_btn = page.locator(add_sel).first  # ✅ FIXED
                         if await add_btn.count() > 0:
                             is_disabled = await add_btn.get_attribute('disabled')
                             if not is_disabled:
@@ -112,7 +112,7 @@ async def find_and_add_product(page):
         except:
             continue
     return False
-
+    
 async def navigate_to_checkout(page):
     checkout_selectors = [
         'a[href*="/checkout"]', 'a[href*="checkout"]', 'button[name="checkout"]',
@@ -121,7 +121,7 @@ async def navigate_to_checkout(page):
     
     for selector in checkout_selectors:
         try:
-            element = await page.locator(selector).first
+            element = page.locator(selector).first
             if await element.count() > 0:
                 await element.click()
                 await page.wait_for_load_state('domcontentloaded', timeout=15000)
@@ -152,11 +152,11 @@ async def fill_contact_info_enhanced(page, email=None):
     
     for selector in email_selectors:
         try:
-            element = await page.locator(selector).first
+            element = page.locator(selector).first
             if await element.count() > 0:
                 await element.fill(email)
                 try:
-                    newsletter = await page.locator('#checkout_buyer_accepts_marketing, [name*="marketing"]').first
+                    newsletter = page.locator('#checkout_buyer_accepts_marketing, [name*="marketing"]').first
                     if await newsletter.count() > 0:
                         await newsletter.uncheck()
                 except:
@@ -181,7 +181,7 @@ async def fill_shipping_address_enhanced(page, address):
         if value:
             for selector in selectors:
                 try:
-                    element = await page.locator(selector).first
+                    element = page.locator(selector).first
                     if await element.count() > 0:
                         await element.fill(str(value))
                         await page.wait_for_timeout(random.randint(100, 300))
@@ -192,7 +192,7 @@ async def fill_shipping_address_enhanced(page, address):
     state_selectors = ['#checkout_shipping_address_province', '[name="province"]', '#state']
     for selector in state_selectors:
         try:
-            element = await page.locator(selector).first
+            element = page.locator(selector).first
             if await element.count() > 0:
                 try:
                     await element.select_option(value=address['state'])
@@ -217,7 +217,7 @@ async def fill_shipping_address_enhanced(page, address):
     
     for selector in continue_selectors:
         try:
-            element = await page.locator(selector).first
+            element = page.locator(selector).first
             if await element.count() > 0:
                 await element.click()
                 await page.wait_for_timeout(random.randint(2000, 3000))
@@ -251,7 +251,7 @@ async def fill_card_details_enhanced(page, card_info):
         direct_selectors = ['#card-number', '[name="cardnumber"]', '#number', '[name="number"]']
         for sel in direct_selectors:
             try:
-                el = await page.locator(sel).first
+                el = page.locator(sel).first
                 if await el.count() > 0:
                     await el.fill(cc)
                     card_filled = True
@@ -298,7 +298,7 @@ async def extract_price_enhanced(page):
     
     for selector in price_selectors:
         try:
-            element = await page.locator(selector).first
+            element = page.locator(selector).first
             price_text = await element.text_content()
             if price_text:
                 match = re.search(r'\$\s*(\d+\.?\d*)', price_text)
