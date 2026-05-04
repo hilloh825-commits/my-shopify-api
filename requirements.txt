@@ -1,5 +1,7 @@
-flask
+telethon
+fastapi
+uvicorn
 playwright
 playwright-stealth
-greenlet
-gunicorn
+aiohttp
+aiofiles
