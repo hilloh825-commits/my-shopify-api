@@ -1,9 +1,0 @@
-services:
-  - type: web
-    name: my-shopify-api
-    env: docker
-    region: singapore
-    dockerfilePath: ./Dockerfile
-    envVars:
-      - key: PORT
-        value: 8081
